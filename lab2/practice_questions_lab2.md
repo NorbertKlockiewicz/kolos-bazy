@@ -37,6 +37,19 @@ WHERE last_name LIKE 'Kow%';
 
 ### Tasks:
 1. **Create indexes** to speed up each query
+   query 1:
+   ```
+   CREATE INDEX idx_name ON employees(hire_date);
+   ```
+   query 2:
+   ```
+   CREATE INDEX idx_name ON employees(department, salary) WHERE `salary` > 80000;
+   ```
+   query 3:
+   ```
+   CREATE INDEX idx_name ON table(last_name varchar_pattern_ops);
+   ```
+
 2. **Provide the CREATE INDEX statements**
 3. **Explain why each index helps** the corresponding query
 
@@ -65,14 +78,19 @@ ON products(category, subcategory, brand);
 **Which of these queries will use the index? Explain why or why not:**
 
 1. `SELECT * FROM products WHERE category = 'Electronics';`
+   will wokr
 
 2. `SELECT * FROM products WHERE subcategory = 'Laptops';`
+   won't work
 
 3. `SELECT * FROM products WHERE category = 'Electronics' AND subcategory = 'Laptops';`
+   will work
 
 4. `SELECT * FROM products WHERE category = 'Electronics' AND brand = 'Apple';`
+   will use but only for the category
 
 5. `SELECT * FROM products WHERE brand = 'Apple';`
+   won't work
 
 **Write the rule** for when a multi-column index can be used.
 
@@ -98,17 +116,27 @@ CREATE INDEX idx_title ON books(title);
 **For each query below, state whether the index will be used and why:**
 
 1. `SELECT * FROM books WHERE title = 'Database Systems';`
+   will work
 
 2. `SELECT * FROM books WHERE title LIKE 'Database%';`
+   won't work
 
 3. `SELECT * FROM books WHERE title LIKE '%Database%';`
+   won't work
 
 4. `SELECT * FROM books WHERE title LIKE '%Systems';`
+   won't work
 
 5. `SELECT * FROM books WHERE LOWER(title) LIKE 'database%';`
+   won't work
 
 ### Task:
 **For queries that don't use the index, provide a solution** (either create a different index or modify the query).
+   `CREATE INDEX idx_name ON books(title varchar_pattern_ops);` - query 2
+   ``
+   `CREATE INDEX idx_name ON books(lower(title) varchar_pattern_ops);` - query 4, 5
+
+
 
 ---
 
@@ -218,6 +246,10 @@ ORDER BY City, MeasurementDate DESC;
 ### Tasks:
 
 1. **Design an index strategy** for this table (create 2-4 indexes)
+   A - classic b-tree index
+   B - multicolumn index
+   C - full text search
+   D - classic B-tree index
 
 2. **Justify each index** (which queries it helps, why)
 

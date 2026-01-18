@@ -43,7 +43,23 @@ COMMIT;
 
 ### Tasks:
 1. **Identify ALL mistakes** in the schema above (keep it as a star model)
+ - a. no primary keys in dim tables
+ - b. no primary key in fact_sales consisting of foreign keys from dim tables
+ - c. date_id type mismatch
+ - d. No FOREIGN KEY constraints in fact_sales
+ - e. VARCHAR without length in dim_date (date_id), dim_product (product_name), dim_store (city)
+ - f. No NOT NULL constraints on critical fields
+ - g. No UNIQUE constraint on natural keys in dimensions
+ - h. store_id data type mismatch (VARCHAR(10) in fact_sales, but store_code is CHAR(10) in dim_store)
 2. **Write a query** that returns: Total revenue and average discount for products in category 'Electronics' sold in Germany during Q3 2023
+   ```
+    SELECT SUM(f.total_revenue) AS total_revenue, AVG(f.discount_amount) AS avg_discount FROM fact_sales f
+    JOIN dim_date d ON f.date_id = d.date_id
+    JOIN dim_product p ON f.product_id = p.product_id
+    JOIN dim_store s ON f.store_id = s.store_code
+    WHERE p.category = 'Electronics' AND s.country = 'Germany' AND d.year = 2023
+    AND d.month BETWEEN 7 AND 9
+   ```
 
 ---
 
@@ -136,15 +152,51 @@ CREATE TABLE fact_orders (
 ### Write queries for:
 
 1. **Total revenue by category** for year 2023, ordered by revenue descending
+   ```
+   SELECT SUM(f.revenue) AS total_revenue, p.category FROM fact_orders f
+   JOIN dim_product p ON f.product_key = p.product_key
+   JOIN dim_time t ON f.time_key = t.time_key
+   WHERE t.year = 2023 GROUP BY p.category ORDER BY total_revenue DESC
+    ```
 
 2. **Monthly profit trend** for Q1 2024 (show month name, total profit)
+    ```
+    SELECT t.month, SUM(f.profit) AS total_profit FROM fact_orders f
+    JOIN dim_time t ON f.time_key = t.time_key
+    WHERE t.year = 2024 AND t.month BETWEEN 1 AND 3
+    GROUP BY t.month;
+    ```
 
 3. **Top 5 customers** by total revenue in France during 2023
+    ```
+    SELECT c.customer_name, SUM(f.revenue) AS total_revenue FROM fact_orders f
+    JOIN dim_customer c ON f.customer_key = c.customer_key
+    JOIN dim_time t ON f.time_key = t.time_key
+    WHERE t.year = 2023 AND c.country = 'France'
+    GROUP BY c.customer_name
+    ORDER BY total_revenue DESC LIMIT 5
+    ```
+
 
 4. **Average order value** by country and quarter for 2023
+    ```
+    SELECT c.country, t.quarter, AVG(f.revenue) AS average_order_value FROM fact_orders f
+    JOIN dim_customer c ON f.customer_key = c.customer_key
+    JOIN dim_time t ON f.time_key = t.time_key
+    WHERE t.year = 2023
+    GROUP BY c.country, t.quarter
+    ORDER BY t.quarter
+    ```
 
 5. **Products with negative profit** (loss) in any month of 2023, show product name, month, and profit
-
+    ```
+    SELECT t.month_name, p.product_name, SUM(f.profit) AS monthly_profit FROM fact_orders f
+    JOIN dim_product p ON f.product_key = p.product_key
+    JOIN dim_time t ON f.time_key = t.time_key
+    WHERE t.year = 2023
+    GROUP BY p.product_name, t.month_name
+    HAVING monthly_profit < 0
+    ```
 ---
 
 ## Question 4: Fix ETL Query
@@ -169,7 +221,22 @@ ORDER BY o.order_id;
 
 ### Tasks:
 1. **Identify what's wrong** with this ETL query
+   We should use INNER JOIN instead of LEFT JOIN
 2. **Provide the corrected version**
+   ```
+    INSERT INTO fact_sales (time_key, customer_key, product_key, amount, quantity)
+    SELECT
+        dt.time_key,
+        dc.customer_key,
+        dp.product_key,
+        o.total_amount,
+        o.quantity
+    FROM orders o
+    INNER JOIN dim_time dt ON o.order_date = dt.date
+    INNER JOIN dim_customer dc ON o.customer_id = dc.customer_id
+    INNER JOIN dim_product dp ON o.product_id = dp.product_id
+    ORDER BY o.order_id;
+```
 
 ---
 
@@ -203,6 +270,34 @@ CREATE TABLE sales_fact(
 
 ### Task:
 Write the **completely corrected version** of all three tables.
+
+```
+CREATE TABLE time_dimension(
+    time_id DATE PRIMARY KEY,
+    day INTEGER,
+    month INTEGER,
+    year INTEGER,
+    full_date DATE
+);
+
+CREATE TABLE customer_dimension(
+    cust_key INTEGER PRIMARY KEY,
+    cust_id VARCHAR,
+    name VARCHAR,
+    country VARCHAR(50)
+);
+
+CREATE TABLE sales_fact(
+    time_id DATE,
+    customer_id INTEGER,
+    product_id INTEGER,
+    revenue NUMERIC(10,2),
+    FOREIGN KEY (customer_id) REFERENCES customer_dimension(cust_key)
+    FOREIGN KEY (time_id) REFERENCES time_dimension(time_id)
+
+    PRIMARY KEY (time_id, customer_id, product_id)
+);
+```
 
 ---
 
