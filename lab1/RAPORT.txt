@@ -1,0 +1,212 @@
+Author: Norbert Klockiewicz
+
+================================================================================
+QUESTION 3: OLAP STAR SCHEMA DESIGN (SQL DDL)
+================================================================================
+
+-- Create OLAP schema
+CREATE SCHEMA IF NOT EXISTS olap;
+SET search_path TO olap, public;
+
+-- ==========================================
+-- DIMENSION TABLES
+-- ==========================================
+
+-- Dimension 1: Time Dimension (with month granularity)
+CREATE TABLE dim_time (
+    time_key SERIAL PRIMARY KEY,
+    date DATE NOT NULL,
+    day INTEGER NOT NULL,
+    month INTEGER NOT NULL,
+    year INTEGER NOT NULL,
+    quarter INTEGER NOT NULL,
+    month_name VARCHAR(20) NOT NULL,
+    year_month VARCHAR(7) NOT NULL,  -- Format: YYYY-MM for monthly granularity
+    UNIQUE(date)
+);
+
+-- Dimension 2: Customer Dimension
+CREATE TABLE dim_customer (
+    customer_key SERIAL PRIMARY KEY,
+    customer_id VARCHAR(10) NOT NULL,
+    customer_name VARCHAR(40) NOT NULL,
+    customer_city VARCHAR(40) NOT NULL,
+    customer_zip CHAR(6) NOT NULL,
+    customer_email VARCHAR(40),
+    customer_phone VARCHAR(16) NOT NULL,
+    customer_fax VARCHAR(16),
+    customer_type VARCHAR(20) NOT NULL,  -- 'Individual' or 'Company'
+    UNIQUE(customer_id)
+);
+
+-- Dimension 3: Product Dimension
+CREATE TABLE dim_product (
+    product_key SERIAL PRIMARY KEY,
+    product_id CHAR(5) NOT NULL,
+    product_name VARCHAR(40) NOT NULL,
+    product_description VARCHAR(100),
+    product_category VARCHAR(20) NOT NULL,  -- Derived from product_id prefix
+    UNIQUE(product_id)
+);
+
+-- Dimension 4: Location Dimension (for delivery addresses)
+CREATE TABLE dim_location (
+    location_key SERIAL PRIMARY KEY,
+    addressee_id INTEGER NOT NULL,
+    addressee_name VARCHAR(40) NOT NULL,
+    city VARCHAR(40) NOT NULL,
+    zip CHAR(6) NOT NULL,
+    address VARCHAR(60) NOT NULL,
+    UNIQUE(addressee_id)
+);
+
+-- ==========================================
+-- FACT TABLE
+-- ==========================================
+
+-- Fact Table: Sales Facts
+CREATE TABLE fact_sales (
+    sales_key SERIAL PRIMARY KEY,
+    time_key INTEGER NOT NULL REFERENCES dim_time(time_key),
+    customer_key INTEGER NOT NULL REFERENCES dim_customer(customer_key),
+    product_key INTEGER NOT NULL REFERENCES dim_product(product_key),
+    location_key INTEGER NOT NULL REFERENCES dim_location(location_key),
+
+    -- Measures
+    order_price NUMERIC(7,2) NOT NULL,
+    is_paid BOOLEAN NOT NULL,
+
+    -- Degenerate dimension (keeps order ID for reference)
+    order_id INTEGER NOT NULL
+);
+
+================================================================================
+QUESTION 4: ETL IMPLEMENTATION (SQL - INSERT INTO ... SELECT)
+================================================================================
+
+SET search_path TO olap, public;
+
+-- ==========================================
+-- STEP 1: Load Time Dimension
+-- ==========================================
+
+INSERT INTO dim_time (date, day, month, year, quarter, month_name, year_month)
+SELECT DISTINCT
+    date,
+    EXTRACT(DAY FROM date)::INTEGER,
+    EXTRACT(MONTH FROM date)::INTEGER,
+    EXTRACT(YEAR FROM date)::INTEGER,
+    EXTRACT(QUARTER FROM date)::INTEGER,
+    TO_CHAR(date, 'Month'),
+    TO_CHAR(date, 'YYYY-MM')
+FROM public.orders
+WHERE date IS NOT NULL
+ORDER BY date;
+
+-- ==========================================
+-- STEP 2: Load Customer Dimension
+-- ==========================================
+
+INSERT INTO dim_customer (customer_id, customer_name, customer_city, customer_zip,
+                         customer_email, customer_phone, customer_fax, customer_type)
+SELECT
+    idcustomer,
+    name,
+    city,
+    zip,
+    email,
+    phone,
+    fax,
+    CASE
+        WHEN regon <> '         ' AND TRIM(regon) <> '' THEN 'Company'
+        ELSE 'Individual'
+    END AS customer_type
+FROM public.customer
+ORDER BY idcustomer;
+
+-- ==========================================
+-- STEP 3: Load Product Dimension
+-- ==========================================
+
+INSERT INTO dim_product (product_id, product_name, product_description, product_category)
+SELECT
+    idproduct,
+    name,
+    description,
+    CASE
+        WHEN idproduct LIKE 'buk%' THEN 'Books'
+        WHEN idproduct LIKE 'ko%' THEN 'Comics'
+        WHEN idproduct LIKE 'kw%' THEN 'Quarterly'
+        WHEN idproduct LIKE 'don%' THEN 'Donations'
+        WHEN idproduct LIKE 'susz%' THEN 'Special'
+        ELSE 'Other'
+    END AS product_category
+FROM public.product
+ORDER BY idproduct;
+
+-- ==========================================
+-- STEP 4: Load Location Dimension
+-- ==========================================
+
+INSERT INTO dim_location (addressee_id, addressee_name, city, zip, address)
+SELECT
+    idaddressee,
+    name,
+    city,
+    zip,
+    address
+FROM public.addressee
+ORDER BY idaddressee;
+
+-- ==========================================
+-- STEP 5: Load Fact Table
+-- ==========================================
+
+INSERT INTO fact_sales (time_key, customer_key, product_key, location_key,
+                       order_price, is_paid, order_id)
+SELECT
+    dt.time_key,
+    dc.customer_key,
+    dp.product_key,
+    dl.location_key,
+    o.price,
+    o.paid,
+    o.idorder
+FROM public.orders o
+INNER JOIN dim_time dt ON o.date = dt.date
+INNER JOIN dim_customer dc ON o.idcustomer = dc.customer_id
+INNER JOIN dim_product dp ON TRIM(o.idproduct) = dp.product_id
+INNER JOIN dim_location dl ON o.idaddressee = dl.addressee_id
+WHERE o.date IS NOT NULL
+  AND o.price IS NOT NULL
+ORDER BY o.idorder;
+
+================================================================================
+QUESTION 5: ANALYTICAL QUERY - MONTHLY AGGREGATION FOR SELECTED YEAR
+================================================================================
+
+SET search_path TO olap, public;
+
+-- ==========================================
+-- Query: Monthly Sales Aggregation for Year 2016
+-- ==========================================
+
+SELECT
+    dt.year,
+    dt.month,
+    dt.month_name,
+    dt.year_month,
+    COUNT(*) as total_orders,
+    COUNT(CASE WHEN fs.is_paid = true THEN 1 END) as paid_orders,
+    COUNT(CASE WHEN fs.is_paid = false THEN 1 END) as unpaid_orders,
+    SUM(fs.order_price) as total_revenue,
+    SUM(CASE WHEN fs.is_paid = true THEN fs.order_price ELSE 0 END) as paid_revenue,
+    SUM(CASE WHEN fs.is_paid = false THEN fs.order_price ELSE 0 END) as unpaid_revenue,
+    AVG(fs.order_price) as average_order_value,
+    MIN(fs.order_price) as min_order_value,
+    MAX(fs.order_price) as max_order_value
+FROM fact_sales fs
+JOIN dim_time dt ON fs.time_key = dt.time_key
+WHERE dt.year = 2016
+GROUP BY dt.year, dt.month, dt.month_name, dt.year_month
+ORDER BY dt.month;

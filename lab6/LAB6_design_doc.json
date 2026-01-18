@@ -1,0 +1,18 @@
+{
+  "_id": "_design/exercise2",
+  "_rev": "4-86985db55c2c1b46880805d5cf5e598a",
+  "views": {
+    "new-view": {
+      "map": "function (doc) {\n  if (doc.store) {\n    emit(doc.store, doc);\n  }\n}"
+    },
+    "countPerStore": {
+      "reduce": "_sum",
+      "map": "function (doc) {\n  if (doc.store) {\n    emit(doc.store, 1);\n  }\n}"
+    },
+    "avgPricePerProduct": {
+      "reduce": "function (keys, values, rereduce) {\n  if (rereduce) {\n    var sum = 0;\n    var count = 0;\n    for (var i = 0; i < values.length; i++) {\n      sum += values[i].sum;\n      count += values[i].count;\n    }\n    return {sum: sum, count: count, avg: sum / count};\n  } else {\n    var sum = 0;\n    for (var i = 0; i < values.length; i++) {\n      sum += values[i];\n    }\n    return {sum: sum, count: values.length, avg: sum / values.length};\n  }\n}\n",
+      "map": "function (doc) {\n  if (doc.product && doc.price) {\n    emit(doc.product, doc.price);\n  }\n}"
+    }
+  },
+  "language": "javascript"
+}
